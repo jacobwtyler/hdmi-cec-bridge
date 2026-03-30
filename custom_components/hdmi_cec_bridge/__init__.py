@@ -21,10 +21,7 @@ PLATFORMS: list[Platform] = [
     Platform.SWITCH,
 ]
 
-type HdmiCecBridgeConfigEntry = ConfigEntry
-
-
-async def async_setup_entry(hass: HomeAssistant, entry: HdmiCecBridgeConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up HDMI CEC Bridge from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
@@ -56,7 +53,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: HdmiCecBridgeConfigEntry
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: HdmiCecBridgeConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     coordinator: CecBridgeCoordinator = hass.data[DOMAIN].get(entry.entry_id)
     if coordinator:
@@ -70,7 +67,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: HdmiCecBridgeConfigEntr
 
 
 async def _async_update_listener(
-    hass: HomeAssistant, entry: HdmiCecBridgeConfigEntry
+    hass: HomeAssistant, entry: ConfigEntry
 ) -> None:
     """Handle options update — reload the entry."""
     if entry.options.get(CONF_TAPS):

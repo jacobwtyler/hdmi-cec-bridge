@@ -8,7 +8,11 @@ from typing import Any
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import (
+    config_validation as cv,
+    device_registry as dr,
+    entity_registry as er,
+)
 
 from .const import (
     CONF_BRIDGE_NAME,
@@ -37,13 +41,19 @@ def _discover_cec_devices(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
     entity_reg = er.async_get(hass)
     device_reg = dr.async_get(hass)
 
-    # Find all ESPHome entities that contain "hdmi_cec" or "cec" in their entity_id
+    # Find all ESPHome entities that contain CEC-related names
     cec_entities = [
         entry
         for entry in entity_reg.entities.values()
         if entry.platform == "esphome"
-        and ("hdmi_cec" in entry.entity_id or "cec_raw_message" in entry.entity_id or "cec_translated_message" in entry.entity_id)
+        and (
+            "hdmi_cec" in entry.entity_id
+            or "cec_raw_message" in entry.entity_id
+            or "cec_translated_message" in entry.entity_id
+        )
     ]
+
+    _LOGGER.debug("CEC Bridge discovery: found %d CEC entities", len(cec_entities))
 
     # Map to unique devices
     device_ids = {e.device_id for e in cec_entities if e.device_id}
@@ -71,16 +81,19 @@ def _discover_cec_devices(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
         service_name = esphome_device_name.replace("-", "_")
 
         # Suggest catch-all event name based on ESPHome convention
-        # e.g., "cec-output-tap" → "esphome.hdmi_cec_output" (matching user's YAML pattern)
-        # We can't know for sure, so suggest the common pattern
         suggested_event = f"esphome.hdmi_cec_{service_name.replace('cec_', '').replace('_tap', '')}"
 
+        device_name = device.name_by_user or device.name or esphome_device_name
+
         discovered[did] = {
-            "device_name": device.name_by_user or device.name or esphome_device_name,
+            "device_name": device_name,
             "esphome_device": esphome_device_name,
             "esphome_service": f"{service_name}_hdmi_cec_send",
             "suggested_event": suggested_event,
         }
+        _LOGGER.debug(
+            "CEC Bridge discovery: found device %s (%s)", device_name, did
+        )
 
     return discovered
 
@@ -101,43 +114,44 @@ class HdmiCecBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Handle the initial step — discover CEC taps and let user select."""
-        self._discovered = _discover_cec_devices(self.hass)
+        """Handle the initial step -- discover CEC taps and let user select."""
+        errors: dict[str, str] = {}
+
+        try:
+            self._discovered = _discover_cec_devices(self.hass)
+        except Exception:
+            _LOGGER.exception("Error during CEC device discovery")
+            return self.async_abort(reason="no_devices_found")
 
         if not self._discovered:
             return self.async_abort(reason="no_devices_found")
 
         if user_input is not None:
             self._bridge_name = user_input.get(CONF_BRIDGE_NAME, "CEC Bridge")
+            # cv.multi_select returns a list of selected keys
             selected = user_input.get("selected_devices", [])
             if not selected:
-                return self.async_show_form(
-                    step_id="user",
-                    data_schema=self._build_user_schema(),
-                    errors={"base": "no_devices_selected"},
-                )
-            self._selected_device_ids = selected
-            self._current_tap_index = 0
-            return await self.async_step_configure_tap()
+                errors["base"] = "no_devices_selected"
+            else:
+                self._selected_device_ids = selected
+                self._current_tap_index = 0
+                return await self.async_step_configure_tap()
 
-        return self.async_show_form(
-            step_id="user",
-            data_schema=self._build_user_schema(),
-        )
-
-    def _build_user_schema(self) -> vol.Schema:
-        """Build schema for device selection step."""
         device_options = {
             did: info["device_name"] for did, info in self._discovered.items()
         }
-        return vol.Schema(
-            {
-                vol.Required(CONF_BRIDGE_NAME, default="CEC Bridge"): str,
-                vol.Required("selected_devices"): vol.All(
-                    vol.Coerce(list),
-                    [vol.In(device_options)],
-                ),
-            }
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_BRIDGE_NAME, default="CEC Bridge"): str,
+                    vol.Required("selected_devices"): cv.multi_select(
+                        device_options
+                    ),
+                }
+            ),
+            errors=errors,
         )
 
     async def async_step_configure_tap(
@@ -199,7 +213,10 @@ class HdmiCecBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_TAP_LABEL, default=info["device_name"]
                     ): str,
                     vol.Required(CONF_TAP_ROLE, default=ROLE_INPUT): vol.In(
-                        {ROLE_OUTPUT: "Output (TV/Projector)", ROLE_INPUT: "Input (Source Device)"}
+                        {
+                            ROLE_OUTPUT: "Output (TV/Projector)",
+                            ROLE_INPUT: "Input (Source Device)",
+                        }
                     ),
                     vol.Required(
                         CONF_CATCH_ALL_EVENT, default=info["suggested_event"]
@@ -229,7 +246,7 @@ class HdmiCecBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class HdmiCecBridgeOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
-    """Handle options flow for HDMI CEC Bridge — add/remove/edit taps."""
+    """Handle options flow for HDMI CEC Bridge -- add/remove/edit taps."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         """Initialize options flow."""
@@ -239,6 +256,7 @@ class HdmiCecBridgeOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         self._selected_new: list[str] = []
         self._current_tap_index: int = 0
         self._new_taps: dict[str, dict[str, Any]] = {}
+        self._edit_device_id: str = ""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -284,9 +302,10 @@ class HdmiCecBridgeOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
             return self.async_abort(reason="no_new_devices")
 
         if user_input is not None:
-            self._selected_new = user_input.get("new_devices", [])
-            if not self._selected_new:
+            selected = user_input.get("new_devices", [])
+            if not selected:
                 return self.async_abort(reason="no_devices_selected")
+            self._selected_new = selected
             self._current_tap_index = 0
             self._new_taps = {}
             return await self.async_step_configure_new_tap()
@@ -298,10 +317,7 @@ class HdmiCecBridgeOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
             step_id="add_taps",
             data_schema=vol.Schema(
                 {
-                    vol.Required("new_devices"): vol.All(
-                        vol.Coerce(list),
-                        [vol.In(device_options)],
-                    ),
+                    vol.Required("new_devices"): cv.multi_select(device_options),
                 }
             ),
         )
@@ -345,12 +361,21 @@ class HdmiCecBridgeOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
             step_id="configure_new_tap",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_TAP_LABEL, default=info["device_name"]): str,
+                    vol.Required(
+                        CONF_TAP_LABEL, default=info["device_name"]
+                    ): str,
                     vol.Required(CONF_TAP_ROLE, default=ROLE_INPUT): vol.In(
-                        {ROLE_OUTPUT: "Output (TV/Projector)", ROLE_INPUT: "Input (Source Device)"}
+                        {
+                            ROLE_OUTPUT: "Output (TV/Projector)",
+                            ROLE_INPUT: "Input (Source Device)",
+                        }
                     ),
-                    vol.Required(CONF_CATCH_ALL_EVENT, default=info["suggested_event"]): str,
-                    vol.Required(CONF_ESPHOME_SERVICE, default=info["esphome_service"]): str,
+                    vol.Required(
+                        CONF_CATCH_ALL_EVENT, default=info["suggested_event"]
+                    ): str,
+                    vol.Required(
+                        CONF_ESPHOME_SERVICE, default=info["esphome_service"]
+                    ): str,
                     vol.Required(CONF_TAP_ADDRESS, default=11): int,
                     vol.Optional(CONF_PHYSICAL_ADDRESS): str,
                     vol.Optional(CONF_DEVICE_ADDRESS): int,
@@ -368,7 +393,9 @@ class HdmiCecBridgeOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         if user_input is not None:
             to_remove = user_input.get("remove_devices", [])
             updated_taps = {
-                did: cfg for did, cfg in current_taps.items() if did not in to_remove
+                did: cfg
+                for did, cfg in current_taps.items()
+                if did not in to_remove
             }
 
             # Validate remaining taps still have at least one input and output
@@ -400,10 +427,7 @@ class HdmiCecBridgeOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
         }
         return vol.Schema(
             {
-                vol.Required("remove_devices"): vol.All(
-                    vol.Coerce(list),
-                    [vol.In(tap_options)],
-                ),
+                vol.Required("remove_devices"): cv.multi_select(tap_options),
             }
         )
 
@@ -457,9 +481,16 @@ class HdmiCecBridgeOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
             step_id="edit_tap",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_TAP_LABEL, default=tap[CONF_TAP_LABEL]): str,
-                    vol.Required(CONF_TAP_ROLE, default=tap[CONF_TAP_ROLE]): vol.In(
-                        {ROLE_OUTPUT: "Output (TV/Projector)", ROLE_INPUT: "Input (Source Device)"}
+                    vol.Required(
+                        CONF_TAP_LABEL, default=tap[CONF_TAP_LABEL]
+                    ): str,
+                    vol.Required(
+                        CONF_TAP_ROLE, default=tap[CONF_TAP_ROLE]
+                    ): vol.In(
+                        {
+                            ROLE_OUTPUT: "Output (TV/Projector)",
+                            ROLE_INPUT: "Input (Source Device)",
+                        }
                     ),
                     vol.Required(
                         CONF_CATCH_ALL_EVENT, default=tap[CONF_CATCH_ALL_EVENT]
@@ -467,7 +498,9 @@ class HdmiCecBridgeOptionsFlow(config_entries.OptionsFlowWithConfigEntry):
                     vol.Required(
                         CONF_ESPHOME_SERVICE, default=tap[CONF_ESPHOME_SERVICE]
                     ): str,
-                    vol.Required(CONF_TAP_ADDRESS, default=tap[CONF_TAP_ADDRESS]): int,
+                    vol.Required(
+                        CONF_TAP_ADDRESS, default=tap[CONF_TAP_ADDRESS]
+                    ): int,
                     vol.Optional(
                         CONF_PHYSICAL_ADDRESS,
                         default=tap.get(CONF_PHYSICAL_ADDRESS, ""),
