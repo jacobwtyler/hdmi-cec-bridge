@@ -1,0 +1,139 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HDMI CEC Bridge Setup",
+        "description": "Select ESPHome CEC tap devices to include in this bridge.",
+        "data": {
+          "name": "Bridge name",
+          "selected_devices": "CEC tap devices"
+        }
+      },
+      "configure_tap": {
+        "title": "Configure CEC Tap ({tap_number}/{tap_total})",
+        "description": "Configure {device_name} as part of your CEC bridge.",
+        "data": {
+          "label": "Friendly name",
+          "role": "Role",
+          "catch_all_event": "Catch-all event name",
+          "esphome_service": "ESPHome service name",
+          "tap_address": "Tap logical address (CEC)",
+          "physical_address": "Physical address (e.g. 1.1.0.0)",
+          "device_address": "Device logical address (e.g. 4 for ATV)"
+        },
+        "data_description": {
+          "role": "Output = TV/projector side. Input = source device side.",
+          "catch_all_event": "The ESPHome event this tap fires for all CEC messages.",
+          "esphome_service": "The ESPHome service to call to send CEC frames.",
+          "tap_address": "The CEC logical address the ESP32 tap uses (default 11 = 0x0B).",
+          "physical_address": "Required for input taps. The source device's CEC physical address.",
+          "device_address": "Optional. The source device's CEC logical address (e.g. 4 for playback device)."
+        }
+      }
+    },
+    "abort": {
+      "no_devices_found": "No ESPHome devices with HDMI CEC entities found. Ensure your CEC tap ESPHome devices are online and connected to Home Assistant.",
+      "no_output_tap": "At least one tap must be configured as an output (TV/projector side).",
+      "no_input_tap": "At least one tap must be configured as an input (source device side).",
+      "already_configured": "A CEC bridge with this name already exists."
+    },
+    "error": {
+      "no_devices_selected": "Please select at least one device."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HDMI CEC Bridge Options",
+        "data": {
+          "action": "Action"
+        }
+      },
+      "add_taps": {
+        "title": "Add CEC Taps",
+        "description": "Select new ESPHome CEC devices to add to the bridge.",
+        "data": {
+          "new_devices": "New CEC tap devices"
+        }
+      },
+      "configure_new_tap": {
+        "title": "Configure New Tap",
+        "description": "Configure {device_name}.",
+        "data": {
+          "label": "Friendly name",
+          "role": "Role",
+          "catch_all_event": "Catch-all event name",
+          "esphome_service": "ESPHome service name",
+          "tap_address": "Tap logical address (CEC)",
+          "physical_address": "Physical address (e.g. 1.1.0.0)",
+          "device_address": "Device logical address"
+        }
+      },
+      "remove_taps": {
+        "title": "Remove CEC Taps",
+        "description": "Select taps to remove. Must keep at least one input and one output.",
+        "data": {
+          "remove_devices": "Taps to remove"
+        }
+      },
+      "select_edit_tap": {
+        "title": "Edit CEC Tap",
+        "description": "Select a tap to edit.",
+        "data": {
+          "edit_device": "Tap to edit"
+        }
+      },
+      "edit_tap": {
+        "title": "Edit Tap: {device_name}",
+        "data": {
+          "label": "Friendly name",
+          "role": "Role",
+          "catch_all_event": "Catch-all event name",
+          "esphome_service": "ESPHome service name",
+          "tap_address": "Tap logical address (CEC)",
+          "physical_address": "Physical address",
+          "device_address": "Device logical address"
+        }
+      }
+    },
+    "abort": {
+      "no_new_devices": "No new ESPHome CEC devices found.",
+      "no_devices_selected": "No devices selected."
+    },
+    "error": {
+      "need_input_and_output": "Must keep at least one input and one output tap."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "tv_power": {
+        "name": "TV Power"
+      },
+      "active_source": {
+        "name": "Active Source"
+      },
+      "relay_count": {
+        "name": "Relay Count"
+      }
+    },
+    "button": {
+      "wake_tv": {
+        "name": "Wake TV"
+      },
+      "standby_all": {
+        "name": "Standby All"
+      },
+      "request_tv_power": {
+        "name": "Request TV Power"
+      },
+      "request_all_power": {
+        "name": "Request All Power"
+      }
+    },
+    "select": {
+      "active_input": {
+        "name": "Active Input"
+      }
+    }
+  }
+}

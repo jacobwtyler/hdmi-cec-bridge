@@ -1,0 +1,13 @@
+{
+  "domain": "hdmi_cec_bridge",
+  "name": "HDMI CEC Bridge",
+  "codeowners": ["@jacobwtyler"],
+  "config_flow": true,
+  "dependencies": ["esphome"],
+  "documentation": "https://github.com/jacobwtyler/hdmi-cec-bridge",
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/jacobwtyler/hdmi-cec-bridge/issues",
+  "loggers": ["hdmi_cec_bridge"],
+  "version": "1.0.0"
+}
