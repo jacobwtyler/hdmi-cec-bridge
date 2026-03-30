@@ -42,7 +42,6 @@ async def async_setup_entry(
         CecRequestTvPowerButton(coordinator, entry, slug),
         CecRequestAllPowerButton(coordinator, entry, slug),
         CecRequestAudioStatusButton(coordinator, entry, slug),
-        CecMuteToggleButton(coordinator, entry, slug),
     ]
 
     # Per-input "Switch to" buttons
@@ -184,29 +183,6 @@ class CecRequestAudioStatusButton(ButtonEntity):
     async def async_press(self) -> None:
         """Send Give Audio Status to audio system via output tap."""
         await self._coordinator.async_request_audio_status()
-
-
-class CecMuteToggleButton(ButtonEntity):
-    """Button to toggle mute on the audio system."""
-
-    _attr_icon = "mdi:volume-mute"
-    _attr_has_entity_name = True
-    _attr_translation_key = "mute_toggle"
-
-    def __init__(
-        self,
-        coordinator: CecBridgeCoordinator,
-        entry: ConfigEntry,
-        slug: str,
-    ) -> None:
-        """Initialize."""
-        self._coordinator = coordinator
-        self._attr_unique_id = f"{entry.entry_id}_mute_toggle"
-        self.entity_id = f"button.{slug}_mute_toggle"
-
-    async def async_press(self) -> None:
-        """Toggle mute via output tap."""
-        await self._coordinator.async_toggle_mute()
 
 
 class CecSwitchToInputButton(ButtonEntity):

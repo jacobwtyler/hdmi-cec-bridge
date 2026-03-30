@@ -131,9 +131,6 @@
       },
       "request_audio_status": {
         "name": "Request Audio Status"
-      },
-      "mute_toggle": {
-        "name": "Mute Toggle"
       }
     },
     "number": {
