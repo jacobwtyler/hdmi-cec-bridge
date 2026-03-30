@@ -10,14 +10,19 @@ from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
+    CEC_ADDR_AUDIO_SYSTEM,
     CEC_ADDR_BROADCAST,
     CEC_ADDR_TV,
     CEC_OPCODE_ACTIVE_SOURCE,
+    CEC_OPCODE_GIVE_AUDIO_STATUS,
     CEC_OPCODE_GIVE_POWER_STATUS,
     CEC_OPCODE_IMAGE_VIEW_ON,
+    CEC_OPCODE_REPORT_AUDIO_STATUS,
     CEC_OPCODE_REPORT_POWER_STATUS,
     CEC_OPCODE_STANDBY,
     CEC_OPCODE_TEXT_VIEW_ON,
+    CEC_OPCODE_USER_CONTROL_PRESSED,
+    CEC_OPCODE_USER_CONTROL_RELEASED,
     DEBOUNCE_MS,
     DEFAULT_RELAY_RULES,
     DOMAIN,
@@ -65,6 +70,10 @@ class CecBridgeCoordinator:
         self.last_relay_direction: str = ""
         self.last_relay_opcode: str = ""
         self.last_relay_time: str = ""
+
+        # Audio state
+        self.audio_volume: int | None = None  # 0-100
+        self.audio_muted: bool = False
 
         # Per-tap last event state: {device_id: CecFrame}
         self.tap_last_events: dict[str, CecFrame | None] = {
@@ -178,6 +187,20 @@ class CecBridgeCoordinator:
                 async_dispatcher_send(
                     self.hass, f"{SIGNAL_STATE_UPDATE}_{self.entry_id}"
                 )
+
+        # Track audio status from output bus
+        if source_tap.is_output and opcode == CEC_OPCODE_REPORT_AUDIO_STATUS:
+            status_byte = self._extract_param_byte(frame)
+            self.audio_volume = status_byte & 0x7F  # bits 0-6 = volume (0-100)
+            self.audio_muted = bool(status_byte & 0x80)  # bit 7 = mute
+            _LOGGER.info(
+                "CEC Bridge: Audio status — volume=%d, muted=%s",
+                self.audio_volume,
+                self.audio_muted,
+            )
+            async_dispatcher_send(
+                self.hass, f"{SIGNAL_STATE_UPDATE}_{self.entry_id}"
+            )
 
         # Track active source
         if opcode == CEC_OPCODE_ACTIVE_SOURCE:
@@ -367,6 +390,66 @@ class CecBridgeCoordinator:
                 "cec_data": data,
             },
         )
+
+    async def async_request_audio_status(self) -> None:
+        """Send Give Audio Status to the audio system via output tap."""
+        output = self.primary_output
+        if output:
+            await self.async_send_cec(
+                output, CEC_ADDR_AUDIO_SYSTEM, [CEC_OPCODE_GIVE_AUDIO_STATUS]
+            )
+
+    async def async_set_volume(self, target: int) -> None:
+        """Set volume by sending vol up/down keypresses via output tap."""
+        output = self.primary_output
+        if not output or self.audio_volume is None:
+            return
+
+        delta = target - self.audio_volume
+        if delta == 0:
+            return
+
+        keycode = 0x41 if delta > 0 else 0x42  # vol up or vol down
+        steps = min(abs(delta), 30)  # cap at 30 steps per call
+
+        for _ in range(steps):
+            await self.async_send_cec(
+                output,
+                CEC_ADDR_AUDIO_SYSTEM,
+                [CEC_OPCODE_USER_CONTROL_PRESSED, keycode],
+            )
+            await self.async_send_cec(
+                output,
+                CEC_ADDR_AUDIO_SYSTEM,
+                [CEC_OPCODE_USER_CONTROL_RELEASED],
+            )
+
+        # Update optimistically
+        self.audio_volume = target
+        async_dispatcher_send(
+            self.hass, f"{SIGNAL_STATE_UPDATE}_{self.entry_id}"
+        )
+
+        # Request actual status after a brief delay
+        self.hass.loop.call_later(
+            1.0,
+            lambda: self.hass.async_create_task(self.async_request_audio_status()),
+        )
+
+    async def async_toggle_mute(self) -> None:
+        """Toggle mute via output tap."""
+        output = self.primary_output
+        if output:
+            await self.async_send_cec(
+                output,
+                CEC_ADDR_AUDIO_SYSTEM,
+                [CEC_OPCODE_USER_CONTROL_PRESSED, 0x43],  # mute toggle
+            )
+            await self.async_send_cec(
+                output,
+                CEC_ADDR_AUDIO_SYSTEM,
+                [CEC_OPCODE_USER_CONTROL_RELEASED],
+            )
 
     @staticmethod
     def _extract_param_byte(frame: CecFrame) -> int:
