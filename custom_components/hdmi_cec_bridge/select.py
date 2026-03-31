@@ -47,6 +47,7 @@ class CecActiveInputSelect(RestoreEntity, SelectEntity):
         self._coordinator = coordinator
         slug = coordinator.slug
         self._attr_unique_id = f"{entry.entry_id}_active_input"
+        self._attr_device_info = coordinator.device_info
         self.entity_id = f"select.{slug}_active_input"
 
         # Build device_id → label mapping for input taps

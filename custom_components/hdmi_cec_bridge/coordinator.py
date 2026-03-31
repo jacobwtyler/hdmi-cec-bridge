@@ -7,6 +7,7 @@ import time
 from typing import Any, Callable
 
 from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
@@ -86,8 +87,25 @@ class CecBridgeCoordinator:
         # Loop prevention: {(opcode, direction): last_relay_timestamp_ms}
         self._debounce: dict[tuple[int, str], float] = {}
 
+        # Bridge-owned CEC addresses — frames from these are bridge-originated
+        # and must not be relayed (prevents loops on shared CEC buses)
+        self._bridge_addresses: set[int] = {
+            tap.tap_address for tap in taps.values()
+        }
+
         # Listener unsubscribes
         self._unsub_listeners: list[CALLBACK_TYPE] = []
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info for the bridge device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.entry_id)},
+            name=self.bridge_name,
+            manufacturer="HDMI CEC Bridge",
+            model="ESPHome CEC Tap Bridge",
+            sw_version="1.0.0",
+        )
 
     @property
     def slug(self) -> str:
@@ -159,12 +177,14 @@ class CecBridgeCoordinator:
                 frame,
             )
 
-            # Loop guard: skip if source is the tap's own address (self-echo)
-            if frame.source == tap.tap_address:
+            # Loop guard: skip if source address belongs to ANY tap in this bridge.
+            # On shared CEC buses (e.g. Feintech), one tap's injection appears
+            # on all other taps. Without this, cross-tap echoes cause relay loops.
+            if frame.source in self._bridge_addresses:
                 _LOGGER.debug(
-                    "CEC Bridge: Skipping self-echo from tap '%s' (addr 0x%02X)",
+                    "CEC Bridge: Skipping bridge-originated frame (src 0x%02X) on tap '%s'",
+                    frame.source,
                     tap.label,
-                    tap.tap_address,
                 )
                 return
 
@@ -218,6 +238,12 @@ class CecBridgeCoordinator:
         opcode = frame.opcode
         output = self.primary_output
         if not output:
+            return
+
+        # On shared CEC buses, input taps see output-side device traffic
+        # (TV ↔ AudioSystem, etc.) that bleeds across. Never relay these —
+        # they belong to the output bus, not the input device.
+        if frame.source in (CEC_ADDR_TV, CEC_ADDR_AUDIO_SYSTEM):
             return
 
         # Rule: Wake to output
@@ -338,16 +364,34 @@ class CecBridgeCoordinator:
         )
 
     def _handle_active_source(self, source_tap: CecTap, frame: CecFrame) -> None:
-        """Handle Active Source opcode — update tracking."""
-        # Try to match PA to an input tap
-        # The PA is in the event's raw data, but we can also check which input tap fired it
-        if source_tap.is_input:
+        """Handle Active Source opcode — update tracking.
+
+        On shared CEC buses, any tap may see Active Source from any device.
+        Match by device_address to find the correct input tap, falling back
+        to the receiving tap if no match is found.
+        """
+        # Try to match frame source address to a known input tap's device
+        matched_tap = None
+        matched_device_id = None
+        for did, tap in self.taps.items():
+            if tap.is_input and tap.device_address == frame.source:
+                matched_tap = tap
+                matched_device_id = did
+                break
+
+        if matched_tap:
+            self.active_source_label = matched_tap.label
+            self.active_source_pa = matched_tap.physical_address
+            self.active_input_device_id = matched_device_id
+        elif source_tap.is_input:
+            # Fallback: attribute to the receiving tap
             self.active_source_label = source_tap.label
             self.active_source_pa = source_tap.physical_address
             self.active_input_device_id = source_tap.device_id
-            async_dispatcher_send(
-                self.hass, f"{SIGNAL_STATE_UPDATE}_{self.entry_id}"
-            )
+
+        async_dispatcher_send(
+            self.hass, f"{SIGNAL_STATE_UPDATE}_{self.entry_id}"
+        )
 
     def set_active_input(self, device_id: str) -> None:
         """Set the active input (from select entity)."""

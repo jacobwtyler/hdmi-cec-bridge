@@ -51,6 +51,7 @@ class CecVolumeNumber(RestoreEntity, NumberEntity):
         slug = coordinator.slug
         self._attr_unique_id = f"{entry.entry_id}_audio_volume"
         self._attr_name = "Audio Volume"
+        self._attr_device_info = coordinator.device_info
         self.entity_id = f"number.{slug}_audio_volume"
 
     @property

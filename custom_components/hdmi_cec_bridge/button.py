@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
@@ -70,6 +71,7 @@ class CecWakeTvButton(ButtonEntity):
         """Initialize."""
         self._coordinator = coordinator
         self._attr_unique_id = f"{entry.entry_id}_wake_tv"
+        self._attr_device_info = coordinator.device_info
         self.entity_id = f"button.{slug}_wake_tv"
 
     async def async_press(self) -> None:
@@ -97,6 +99,7 @@ class CecStandbyAllButton(ButtonEntity):
         """Initialize."""
         self._coordinator = coordinator
         self._attr_unique_id = f"{entry.entry_id}_standby_all"
+        self._attr_device_info = coordinator.device_info
         self.entity_id = f"button.{slug}_standby_all"
 
     async def async_press(self) -> None:
@@ -124,6 +127,7 @@ class CecRequestTvPowerButton(ButtonEntity):
         """Initialize."""
         self._coordinator = coordinator
         self._attr_unique_id = f"{entry.entry_id}_request_tv_power"
+        self._attr_device_info = coordinator.device_info
         self.entity_id = f"button.{slug}_request_tv_power"
 
     async def async_press(self) -> None:
@@ -151,6 +155,7 @@ class CecRequestAllPowerButton(ButtonEntity):
         """Initialize."""
         self._coordinator = coordinator
         self._attr_unique_id = f"{entry.entry_id}_request_all_power"
+        self._attr_device_info = coordinator.device_info
         self.entity_id = f"button.{slug}_request_all_power"
 
     async def async_press(self) -> None:
@@ -178,6 +183,7 @@ class CecRequestAudioStatusButton(ButtonEntity):
         """Initialize."""
         self._coordinator = coordinator
         self._attr_unique_id = f"{entry.entry_id}_request_audio_status"
+        self._attr_device_info = coordinator.device_info
         self.entity_id = f"button.{slug}_request_audio_status"
 
     async def async_press(self) -> None:
@@ -203,9 +209,10 @@ class CecSwitchToInputButton(ButtonEntity):
         self._coordinator = coordinator
         self._device_id = device_id
         self._label = label
-        tap_slug = label.lower().replace(" ", "_").replace("-", "_")
+        tap_slug = re.sub(r'[^a-z0-9]+', '_', label.lower()).strip('_')
         self._attr_unique_id = f"{entry.entry_id}_{device_id}_switch_to"
         self._attr_name = f"Switch to {label}"
+        self._attr_device_info = coordinator.device_info
         self.entity_id = f"button.{slug}_switch_to_{tap_slug}"
 
     async def async_press(self) -> None:

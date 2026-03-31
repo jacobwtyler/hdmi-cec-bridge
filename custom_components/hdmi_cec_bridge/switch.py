@@ -53,6 +53,7 @@ class CecRelayRuleSwitch(RestoreEntity, SwitchEntity):
         self._default_on = default_on
         self._attr_unique_id = f"{entry.entry_id}_{rule_key}"
         self._attr_name = RELAY_RULE_DESCRIPTIONS.get(rule_key, rule_key)
+        self._attr_device_info = coordinator.device_info
         self.entity_id = f"switch.{slug}_{rule_key}"
 
     @property

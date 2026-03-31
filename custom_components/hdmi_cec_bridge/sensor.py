@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
@@ -63,6 +64,7 @@ class CecTvPowerSensor(RestoreEntity, SensorEntity):
         """Initialize."""
         self._coordinator = coordinator
         self._attr_unique_id = f"{entry.entry_id}_tv_power"
+        self._attr_device_info = coordinator.device_info
         self.entity_id = f"sensor.{slug}_tv_power"
 
     @property
@@ -111,6 +113,7 @@ class CecActiveSourceSensor(RestoreEntity, SensorEntity):
         """Initialize."""
         self._coordinator = coordinator
         self._attr_unique_id = f"{entry.entry_id}_active_source"
+        self._attr_device_info = coordinator.device_info
         self.entity_id = f"sensor.{slug}_active_source"
 
     @property
@@ -168,6 +171,7 @@ class CecRelayCountSensor(SensorEntity):
         """Initialize."""
         self._coordinator = coordinator
         self._attr_unique_id = f"{entry.entry_id}_relay_count"
+        self._attr_device_info = coordinator.device_info
         self.entity_id = f"sensor.{slug}_relay_count"
 
     @property
@@ -218,9 +222,10 @@ class CecTapLastEventSensor(RestoreEntity, SensorEntity):
         self._coordinator = coordinator
         self._device_id = device_id
         self._label = label
-        tap_slug = label.lower().replace(" ", "_").replace("-", "_")
+        tap_slug = re.sub(r'[^a-z0-9]+', '_', label.lower()).strip('_')
         self._attr_unique_id = f"{entry.entry_id}_{device_id}_last_event"
         self._attr_name = f"{label} Last Event"
+        self._attr_device_info = coordinator.device_info
         self.entity_id = f"sensor.{slug}_{tap_slug}_last_event"
 
     @property
