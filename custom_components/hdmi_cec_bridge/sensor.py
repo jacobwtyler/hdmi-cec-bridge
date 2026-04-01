@@ -39,6 +39,10 @@ async def async_setup_entry(
         CecRelayCountSensor(coordinator, entry, slug),
     ]
 
+    # Volume sensor (only if there's an output tap)
+    if coordinator.primary_output:
+        entities.append(CecVolumeSensor(coordinator, entry, slug))
+
     # Per-tap last event sensors
     for device_id, tap in coordinator.taps.items():
         entities.append(
@@ -270,4 +274,59 @@ class CecTapLastEventSensor(RestoreEntity, SensorEntity):
     @callback
     def _handle_event(self, frame: CecFrame) -> None:
         """Handle a new CEC event for this tap."""
+        self.async_write_ha_state()
+
+
+class CecVolumeSensor(RestoreEntity, SensorEntity):
+    """Read-only sensor reporting the audio volume from Report Audio Status (0x7A)."""
+
+    _attr_icon = "mdi:volume-high"
+    _attr_has_entity_name = True
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = "measurement"
+
+    def __init__(
+        self,
+        coordinator: CecBridgeCoordinator,
+        entry: ConfigEntry,
+        slug: str,
+    ) -> None:
+        """Initialize."""
+        self._coordinator = coordinator
+        self._attr_unique_id = f"{entry.entry_id}_volume"
+        self._attr_name = "Volume"
+        self._attr_device_info = coordinator.device_info
+        self.entity_id = f"sensor.{slug}_volume"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return the current volume (0-100), or None if not yet reported."""
+        return self._coordinator.audio_volume
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return mute state as an attribute."""
+        return {"muted": self._coordinator.audio_muted}
+
+    async def async_added_to_hass(self) -> None:
+        """Restore state and subscribe to updates."""
+        last_state = await self.async_get_last_state()
+        if last_state and last_state.state not in (None, "unknown", "unavailable"):
+            try:
+                self._coordinator.audio_volume = int(float(last_state.state))
+            except (ValueError, TypeError):
+                pass
+            self._coordinator.audio_muted = last_state.attributes.get("muted", False)
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                f"{SIGNAL_STATE_UPDATE}_{self._coordinator.entry_id}",
+                self._handle_update,
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle coordinator state update."""
         self.async_write_ha_state()
