@@ -336,15 +336,29 @@ class CecBridgeCoordinator:
         self._debounce[key] = now_ms
 
         _LOGGER.info(
-            "CEC Bridge: Relay %s → %s dest=0x%02X data=%s",
+            "CEC Bridge: Relay %s → %s (svc=%s) dest=0x%02X data=%s",
             direction,
             target_tap.label,
+            target_tap.esphome_service,
             destination,
             [f"0x{b:02X}" for b in data],
         )
 
         self.hass.async_create_task(
-            self.hass.services.async_call(
+            self._do_relay_service_call(target_tap, destination, data, opcode, direction)
+        )
+
+    async def _do_relay_service_call(
+        self,
+        target_tap: CecTap,
+        destination: int,
+        data: list[int],
+        opcode: int,
+        direction: str,
+    ) -> None:
+        """Execute a relay service call with error logging, then update counters."""
+        try:
+            await self.hass.services.async_call(
                 "esphome",
                 target_tap.esphome_service,
                 {
@@ -352,9 +366,16 @@ class CecBridgeCoordinator:
                     "cec_data": data,
                 },
             )
-        )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning(
+                "CEC Bridge: Relay service call failed — tap='%s' svc='%s': %s",
+                target_tap.label,
+                target_tap.esphome_service,
+                err,
+            )
+            return
 
-        # Update relay counter
+        # Update relay counter only on success
         self.relay_count += 1
         self.last_relay_direction = direction
         self.last_relay_opcode = OPCODE_NAMES.get(opcode, f"0x{opcode:02X}")
@@ -410,30 +431,55 @@ class CecBridgeCoordinator:
         if not output or not input_tap.pa_bytes:
             return
 
-        await self.hass.services.async_call(
-            "esphome",
-            output.esphome_service,
-            {
-                "cec_destination": CEC_ADDR_BROADCAST,
-                "cec_data": [CEC_OPCODE_ACTIVE_SOURCE] + input_tap.pa_bytes,
-            },
-        )
-
-        # Update tracking
+        # Update tracking optimistically so automations see the change immediately,
+        # even if the CEC service call below fails.
         self.set_active_input(input_tap.device_id)
+
+        try:
+            await self.hass.services.async_call(
+                "esphome",
+                output.esphome_service,
+                {
+                    "cec_destination": CEC_ADDR_BROADCAST,
+                    "cec_data": [CEC_OPCODE_ACTIVE_SOURCE] + input_tap.pa_bytes,
+                },
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning(
+                "CEC Bridge: Active Source service call failed — tap='%s' svc='%s': %s",
+                output.label,
+                output.esphome_service,
+                err,
+            )
 
     async def async_send_cec(
         self, tap: CecTap, destination: int, data: list[int]
     ) -> None:
         """Send a CEC frame via a tap's ESPHome service."""
-        await self.hass.services.async_call(
-            "esphome",
+        _LOGGER.debug(
+            "CEC Bridge: Send via '%s' (svc=%s) dest=0x%02X data=%s",
+            tap.label,
             tap.esphome_service,
-            {
-                "cec_destination": destination,
-                "cec_data": data,
-            },
+            destination,
+            [f"0x{b:02X}" for b in data],
         )
+        try:
+            await self.hass.services.async_call(
+                "esphome",
+                tap.esphome_service,
+                {
+                    "cec_destination": destination,
+                    "cec_data": data,
+                },
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning(
+                "CEC Bridge: Send failed — tap='%s' svc='%s': %s",
+                tap.label,
+                tap.esphome_service,
+                err,
+            )
+            raise
 
     async def async_request_audio_status(self) -> None:
         """Send Give Audio Status to the audio system via output tap."""
